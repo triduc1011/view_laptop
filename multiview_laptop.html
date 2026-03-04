@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TRIDUC MONITOR SYSTEM</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.0/hls.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #0d0d0d;
+            --panel-color: #1a1a1a;
+            --accent-color: #00ff88; 
+            --danger-color: #ff3333;
+        }
+
+        body { 
+            background: var(--bg-color); margin: 0; color: #fff; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
+
+        /* HEADER */
+        header { 
+            padding: 0 10px; height: 50px; background: var(--panel-color); 
+            display: flex; align-items: center; justify-content: space-between; 
+            border-bottom: 2px solid var(--accent-color); z-index: 100;
+        }
+
+        .controls-group { display: flex; gap: 8px; align-items: center; }
+
+        button, select { 
+            cursor: pointer; padding: 6px 10px; background: #333; color: #fff; 
+            border: 1px solid #555; border-radius: 4px; font-size: 12px; outline: none;
+            display: flex; align-items: center; gap: 5px;
+        }
+        button:hover { border-color: var(--accent-color); background: #444; }
+        button.active { background: var(--accent-color); color: #000; font-weight: bold; border-color: var(--accent-color); }
+
+        /* MENU LỌC */
+        #filter-modal {
+            position: absolute; top: 55px; left: 10px;
+            background: rgba(20, 20, 20, 0.95); border: 1px solid #555;
+            padding: 15px; border-radius: 6px; z-index: 200;
+            display: none; width: 220px; max-height: 80vh; overflow-y: auto;
+            backdrop-filter: blur(5px);
+        }
+        .filter-header { border-bottom:1px solid #444; padding-bottom:5px; margin-bottom:10px; font-weight:bold; color:var(--accent-color); }
+        .filter-item { display: block; margin-bottom: 8px; font-size: 13px; cursor: pointer; user-select: none; }
+        .filter-item input { margin-right: 10px; accent-color: var(--accent-color); transform: scale(1.2); }
+
+        /* GRID */
+        #video-grid { flex-grow: 1; display: grid; gap: 2px; padding: 2px; background: #000; overflow: hidden; }
+        .layout-2x2 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+        .layout-3x3 { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
+        .layout-4x4 { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); }
+
+        /* CAM BOX */
+        .cam-box { position: relative; background: #000; border: 1px solid #222; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+
+        .cam-label { 
+            position: absolute; top: 0; left: 0; 
+            background: rgba(0,0,0,0.7); padding: 4px 8px; 
+            font-size: 12px; color: var(--accent-color); font-weight: bold; 
+            z-index: 5; pointer-events: none; border-bottom-right-radius: 4px;
+        }
+
+        /* STATS */
+        .stats-overlay {
+            position: absolute; top: 30px; left: 5px;
+            background: rgba(0, 0, 0, 0.8); color: #0f0;
+            padding: 5px 8px; font-family: 'Consolas', monospace; font-size: 11px;
+            border: 1px solid #444; border-radius: 4px;
+            z-index: 20; pointer-events: none; display: none;
+            line-height: 1.4; text-align: left;
+        }
+        .stats-overlay span { color: #fff; }
+
+        /* ERROR SCREEN */
+        .error-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #111; z-index: 10; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+        }
+        .error-content { text-align: center; color: var(--danger-color); }
+        .btn-retry { margin-top: 15px; background: #333; color: #fff; border: 1px solid #555; padding: 5px 15px; }
+        .btn-retry:hover { background: var(--accent-color); color: #000; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="controls-group">
+            <strong style="color:var(--accent-color); font-size: 14px;">TRIDUC<span style="color:#fff">VIEW</span></strong>
+            <button onclick="toggleFilterMenu()" id="btn-filter"><i class="fas fa-tasks"></i> List</button>
+            <button onclick="toggleStats()" id="btn-stats"><i class="fas fa-info-circle"></i> Info</button>
+            <select id="quality-select" onchange="changeQuality(this.value)">
+                <option value="-1">Auto</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+            </select>
+        </div>
+
+        <div class="controls-group">
+            <button onclick="setLayout(4)" id="btn-2x2">2x2</button>
+            <button onclick="setLayout(9)" id="btn-3x3">3x3</button>
+            <button onclick="setLayout(16)" id="btn-4x4" class="active">4x4</button>
+            <button onclick="location.reload()"><i class="fas fa-sync-alt"></i></button>
+        </div>
+    </header>
+
+    <div id="filter-modal">
+        <div class="filter-header">DANH SÁCH LUỒNG</div>
+        <div id="checklist-container"></div>
+    </div>
+
+    <div id="video-grid" class="layout-4x4"></div>
+
+    <script>
+        // === CẤU HÌNH SERVER ===
+        const SERVER_HOST = 'http://triducmedia.ddns.net:5003';
+        
+        // === DANH SÁCH LUỒNG ===
+        const MASTER_LIST = [
+            'source', 'source1', 'source2', 'source3', 'source4', 'source5',
+            'studio1', 'studio2',
+            'laptop1', 'laptop2', 'laptop3', 'laptop4', 'laptop5', 
+            'laptop6', 'laptop7', 'laptop8', 'laptop9', 'laptop10'
+        ];
+
+        let activeStreams = [...MASTER_LIST];
+        let hlsInstances = {};
+        let currentLayout = 16;
+        let preferredHeight = -1;
+        let showStats = false;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            initFilterMenu();
+            renderGrid();
+            setInterval(updateStatsData, 1000);
+        });
+
+        // 1. RENDER GRID
+        function renderGrid() {
+            const grid = document.getElementById('video-grid');
+            grid.innerHTML = '';
+            
+            Object.values(hlsInstances).forEach(h => h.destroy());
+            hlsInstances = {};
+
+            const displayList = activeStreams.slice(0, currentLayout);
+
+            displayList.forEach(name => {
+                const div = document.createElement('div');
+                div.className = 'cam-box';
+                div.innerHTML = `
+                    <div class="cam-label">${name.toUpperCase()}</div>
+                    
+                    <div class="stats-overlay" id="stats-${name}">
+                        RES: <span id="res-${name}">--</span><br>
+                        BUF: <span id="buf-${name}">--</span><br>
+                        BIT: <span id="bit-${name}">--</span>
+                    </div>
+
+                    <div class="error-screen" id="err-${name}">
+                        <div class="error-content">
+                            <i class="fas fa-video-slash" style="font-size:24px"></i><br>
+                            NO SIGNAL<br><span style="font-size:10px" id="reason-${name}"></span>
+                            <br><button class="btn-retry" onclick="retryStream('${name}')">Retry</button>
+                        </div>
+                    </div>
+
+                    <video id="vid-${name}" controls muted playsinline></video>
+                `;
+                grid.appendChild(div);
+                loadStream(name);
+            });
+            toggleStatsDisplay();
+        }
+
+        // 2. LOAD STREAM
+        function loadStream(name) {
+            const video = document.getElementById(`vid-${name}`);
+            const errScreen = document.getElementById(`err-${name}`);
+            const url = `${SERVER_HOST}/hls/${name}/index.m3u8`;
+
+            errScreen.style.display = 'none';
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    capLevelToPlayerSize: true,
+                    maxBufferLength: 30, // Ổn định
+                    maxMaxBufferLength: 60,
+                });
+                
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hlsInstances[name] = hls;
+                applyQuality(hls);
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.response && (data.response.code === 404 || data.response.code === 403)) {
+                        stopStream(name, "Offline (404)"); // DỪNG NGAY NẾU KHÔNG CÓ LUỒNG
+                        return;
+                    }
+                    if (data.fatal) {
+                        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                            hls.startLoad();
+                        } else {
+                            stopStream(name, "Fatal Error");
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                video.onerror = () => stopStream(name, "iOS Error");
+            }
+            video.play().catch(()=>{});
+        }
+
+        function stopStream(name, reason) {
+            if (hlsInstances[name]) { hlsInstances[name].destroy(); delete hlsInstances[name]; }
+            document.getElementById(`err-${name}`).style.display = 'flex';
+            document.getElementById(`reason-${name}`).innerText = reason;
+        }
+
+        function retryStream(name) { loadStream(name); }
+
+        // 3. STATS & ULTILITIES
+        function toggleStats() {
+            showStats = !showStats;
+            document.getElementById('btn-stats').classList.toggle('active');
+            toggleStatsDisplay();
+        }
+        function toggleStatsDisplay() {
+            document.querySelectorAll('.stats-overlay').forEach(el => el.style.display = showStats ? 'block' : 'none');
+        }
+        function updateStatsData() {
+            if (!showStats) return;
+            activeStreams.slice(0, currentLayout).forEach(name => {
+                const video = document.getElementById(`vid-${name}`);
+                if (!video) return;
+                document.getElementById(`res-${name}`).innerText = (video.videoWidth > 0) ? `${video.videoWidth}x${video.videoHeight}` : "Waiting";
+                
+                if(video.buffered.length > 0) {
+                     const buf = video.buffered.end(video.buffered.length-1) - video.currentTime;
+                     document.getElementById(`buf-${name}`).innerText = `${buf.toFixed(1)}s`;
+                }
+
+                const hls = hlsInstances[name];
+                if (hls && hls.levels && hls.currentLevel !== -1 && hls.levels[hls.currentLevel]) {
+                    document.getElementById(`bit-${name}`).innerText = `${(hls.levels[hls.currentLevel].bitrate / 1024).toFixed(0)} kbps`;
+                }
+            });
+        }
+
+        // 4. MENU & LAYOUT
+        function initFilterMenu() {
+            const c = document.getElementById('checklist-container');
+            MASTER_LIST.forEach(n => {
+                c.innerHTML += `<label class="filter-item"><input type="checkbox" checked onchange="toggleStream('${n}', this.checked)"> ${n.toUpperCase()}</label>`;
+            });
+        }
+        function toggleFilterMenu() {
+            const m = document.getElementById('filter-modal');
+            m.style.display = (m.style.display === 'none' || m.style.display === '') ? 'block' : 'none';
+        }
+        function toggleStream(name, check) {
+            activeStreams = check ? [...activeStreams, name] : activeStreams.filter(s => s !== name);
+            activeStreams.sort((a,b) => MASTER_LIST.indexOf(a) - MASTER_LIST.indexOf(b));
+            renderGrid();
+        }
+        function changeQuality(v) { preferredHeight = parseInt(v); Object.values(hlsInstances).forEach(h => applyQuality(h)); }
+        function applyQuality(h) {
+            if(!h) return;
+            if(preferredHeight === -1) { h.currentLevel = -1; return; }
+            let lvl = -1;
+            h.levels.forEach((l, i) => { if(l.height <= preferredHeight) lvl = i; });
+            h.currentLevel = (lvl === -1) ? 0 : lvl;
+        }
+        function setLayout(n) {
+            currentLayout = n;
+            document.getElementById('video-grid').className = `layout-${n===4?'2x2':n===9?'3x3':'4x4'}`;
+            document.querySelectorAll('button[id^="btn-"]').forEach(b=>b.classList.remove('active'));
+            document.getElementById(`btn-${n===4?'2x2':n===9?'3x3':'4x4'}`).classList.add('active');
+            renderGrid();
+        }
+    </script>
+</body>
+</html>
